@@ -1,19 +1,8 @@
 services:
   - type: web
-    name: pagina-sd-web
+    name: food-dash
     runtime: python
     repo: https://github.com/mvelasquea/pagina_SD_web
     plan: free
-    envVars:
-      - key: RABBITMQ_HOST
-        value: rat.rmq2.cloudamqp.com
-      - key: RABBITMQ_USER
-        value: ssxppfqn
-      - key: RABBITMQ_PASS
-        value: fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN
-      - key: RABBITMQ_VHOST
-        value: ssxppfqn
-      - key: RPC_QUEUE
-        value: rpc_queue
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
