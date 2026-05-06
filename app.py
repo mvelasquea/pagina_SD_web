@@ -96,6 +96,21 @@ class RpcClient(object):
         return response
 
 
+# Configuración desde variables de entorno (se ejecuta al inicio)
+RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', '127.0.0.1')
+RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'guest')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'guest')
+RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
+
+# Crear el cliente RPC globalmente (NO dentro del if __name__)
+RPC_CLIENT = RpcClient(
+    RABBITMQ_HOST,
+    RABBITMQ_USER,
+    RABBITMQ_PASS,
+    RPC_QUEUE
+)
+
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     respuesta = None
@@ -125,18 +140,5 @@ def index():
 
 
 if __name__ == '__main__':
-    # Leer variables de entorno para CloudAMQP
-    rabbitmq_host = os.environ.get('RABBITMQ_HOST', '127.0.0.1')
-    rabbitmq_user = os.environ.get('RABBITMQ_USER', 'guest')
-    rabbitmq_pass = os.environ.get('RABBITMQ_PASS', 'guest')
-    rabbitmq_queue = os.environ.get('RPC_QUEUE', 'rpc_queue')
-
-    RPC_CLIENT = RpcClient(
-        rabbitmq_host,
-        rabbitmq_user,
-        rabbitmq_pass,
-        rabbitmq_queue
-    )
-
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
