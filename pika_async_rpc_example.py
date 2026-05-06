@@ -1,135 +1,73 @@
-"""
-This is a simple example on how to use Flask and Asynchronous RPC calls.
-
-I kept this simple, but if you want to use this properly you will need
-to expand the concept.
-
-Things that are not included in this example.
-    - Reconnection strategy.
-
-    - Closing or re-opening the connection.
-        - Keep in mind that anything you want to open or close the connection,
-          you should first lock it.
-
-            with self.internal_lock
-                self.channel.stop_consuming()
-                self.connection.close()
-
-        - You also need to stop the process loop if you are intentionally
-          closing the connection.
-
-    - Consider implementing utility functionality for checking and getting
-      responses.
-
-        def has_response(correlation_id)
-        def get_response(correlation_id)
-
-Apache/wsgi configuration.
-    - Each process you start with apache will create a new connection to
-      RabbitMQ.
-
-    - I would recommend depending on the size of the payload that you have
-      about 100 threads per process. If the payload is larger, it might be
-      worth to keep a lower thread count per process.
-
-For questions feel free to email me: me@eandersson.net
-"""
-__author__ = 'eandersson'
-
-import pika
-import uuid
+import os
 import threading
 from time import sleep
-from flask import Flask
+from flask import Blueprint
+import amqpstorm
+from amqpstorm import Message
 
-app = Flask(__name__)
+amqpstorm_bp = Blueprint('amqpstorm', __name__, url_prefix='/amqpstorm')
 
-
-class RpcClient(object):
-    """Asynchronous Rpc client."""
-    internal_lock = threading.Lock()
-    queue = {}
-
-    def __init__(self, rpc_queue):
-        """Set up the basic connection, and start a new thread for processing.
-
-            1) Setup the pika connection, channel and queue.
-            2) Start a new daemon thread.
-        """
+class RpcClientAmqpstorm(object):
+    def __init__(self, host, username, password, vhost, rpc_queue):
+        self.queue = {}
+        self.host = host
+        self.username = username
+        self.password = password
+        self.vhost = vhost
+        self.channel = None
+        self.connection = None
+        self.callback_queue = None
         self.rpc_queue = rpc_queue
-        self.connection = pika.BlockingConnection()
+        self.open()
+
+    def open(self):
+        self.connection = amqpstorm.Connection(
+            self.host, self.username, self.password,
+            virtual_host=self.vhost
+        )
         self.channel = self.connection.channel()
-        result = self.channel.queue_declare(exclusive=True)
-        self.callback_queue = result.method.queue
+        self.channel.queue.declare(self.rpc_queue)
+        result = self.channel.queue.declare(exclusive=True)
+        self.callback_queue = result['queue']
+        self.channel.basic.consume(self._on_response, no_ack=True, queue=self.callback_queue)
+        self._create_process_thread()
+
+    def _create_process_thread(self):
         thread = threading.Thread(target=self._process_data_events)
-        thread.setDaemon(True)
+        thread.daemon = True
         thread.start()
 
     def _process_data_events(self):
-        """Check for incoming data events.
+        self.channel.start_consuming(to_tuple=False)
 
-        We do this on a thread to allow the flask instance to send
-        asynchronous requests.
-
-        It is important that we lock the thread each time we check for events.
-        """
-        self.channel.basic_consume(self._on_response, no_ack=True,
-                                   queue=self.callback_queue)
-        while True:
-            with self.internal_lock:
-                self.connection.process_data_events()
-                sleep(0.1)
-
-    def _on_response(self, ch, method, props, body):
-        """On response we simply store the result in a local dictionary."""
-        self.queue[props.correlation_id] = body
+    def _on_response(self, message):
+        self.queue[message.correlation_id] = message.body
 
     def send_request(self, payload):
-        """Send an asynchronous Rpc request.
+        message = Message.create(self.channel, payload)
+        message.reply_to = self.callback_queue
+        self.queue[message.correlation_id] = None
+        message.publish(routing_key=self.rpc_queue)
+        return message.correlation_id
 
-        The main difference from the rpc example available on rabbitmq.com
-        is that we do not wait for the response here. Instead we let the
-        function calling this request handle that.
+# Configuración desde variables de entorno
+RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST')
+RABBITMQ_USER = os.environ.get('RABBITMQ_USER')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS')
+RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST')
+RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
-            corr_id = rpc_client.send_request(payload)
+rpc_client_amqpstorm = RpcClientAmqpstorm(
+    RABBITMQ_HOST, RABBITMQ_USER, RABBITMQ_PASS, RABBITMQ_VHOST, RPC_QUEUE
+)
 
-            while rpc_client.queue[corr_id] is None:
-                sleep(0.1)
-
-            return rpc_client.queue[corr_id]
-
-        If this is a web application it is usually best to implement a
-        timeout. To make sure that the client wont be stuck trying
-        to load the call indefinitely.
-
-        We return the correlation id that the client then use to look for
-        responses.
-        """
-        corr_id = str(uuid.uuid4())
-        self.queue[corr_id] = None
-        with self.internal_lock:
-            self.channel.basic_publish(exchange='',
-                                       routing_key=self.rpc_queue,
-                                       properties=pika.BasicProperties(
-                                           reply_to=self.callback_queue,
-                                           correlation_id=corr_id,
-                                       ),
-                                       body=payload)
-        return corr_id
-
-
-@app.route('/rpc_call/<payload>')
+@amqpstorm_bp.route('/rpc_call/<payload>')
 def rpc_call(payload):
-    """Simple Flask implementation for making asynchronous Rpc calls. """
-    corr_id = rpc_client.send_request(payload)
-
-    while rpc_client.queue[corr_id] is None:
+    corr_id = rpc_client_amqpstorm.send_request(payload)
+    while rpc_client_amqpstorm.queue[corr_id] is None:
         sleep(0.1)
+    return rpc_client_amqpstorm.queue[corr_id]
 
-    return rpc_client.queue[corr_id]
-
-
-if __name__ == '__main__':
-    rpc_client = RpcClient('rpc_queue')
-    app.run()
-
+@amqpstorm_bp.route('/')
+def home():
+    return "AMQPStorm RPC Client is running!"
