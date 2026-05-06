@@ -98,11 +98,11 @@ class RpcClient(object):
         return response
 
 
-# Configuración desde variables de entorno (Render + CloudAMQP)
-RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', '127.0.0.1')
-RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'guest')
-RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'guest')
-RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', '/')
+# Configuración desde variables de entorno (CloudAMQP)
+RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
+RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS')
+RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
 # Crear cliente RPC
@@ -124,7 +124,7 @@ def index():
             corr_id = RPC_CLIENT.send_request(mensaje)
 
             if corr_id is None:
-                respuesta = "No se pudo enviar la solicitud RPC."
+                respuesta = "❌ No se pudo enviar la solicitud RPC."
             else:
                 timeout = 10
                 elapsed = 0
@@ -132,12 +132,12 @@ def index():
                     sleep(0.1)
                     elapsed += 0.1
                     if elapsed >= timeout:
-                        respuesta = "Timeout: el servidor RPC no respondió."
+                        respuesta = "⏰ Timeout: el servidor RPC no respondió."
                         break
                 else:
                     respuesta = RPC_CLIENT.get_response(corr_id)
         except Exception as e:
-            respuesta = f"Error de conexión RPC: {str(e)}"
+            respuesta = f"❌ Error de conexión RPC: {str(e)}"
 
     return render_template('index.html', respuesta=respuesta)
 

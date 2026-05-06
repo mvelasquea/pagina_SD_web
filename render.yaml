@@ -1,8 +1,9 @@
 services:
-  # Servicio web (Cliente Flask)
+  # Servicio Web (Interfaz Flask)
   - type: web
     name: rpc-web
     runtime: python
+    repo: https://github.com/mvelasquea/pagina_SD_web
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
@@ -18,10 +19,11 @@ services:
       - key: RPC_QUEUE
         value: rpc_queue
 
-  # Worker (Servidor RPC)
+  # Background Worker (Servidor RPC)
   - type: worker
     name: rpc-worker
     runtime: python
+    repo: https://github.com/mvelasquea/pagina_SD_web
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python rpc_server.py
