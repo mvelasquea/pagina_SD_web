@@ -1,210 +1,145 @@
 import os
-import uuid
 import threading
-import time
+from time import sleep
 from flask import Flask, render_template, request
-import pika
+import amqpstorm
+from amqpstorm import Message
 
 app = Flask(__name__)
 
-# Configuración
+class RpcClient(object):
+    """Asynchronous RPC Client."""
+
+    def __init__(self, host, username, password, vhost, rpc_queue):
+        self.queue = {}
+        self.host = host
+        self.username = username
+        self.password = password
+        self.vhost = vhost
+        self.channel = None
+        self.connection = None
+        self.callback_queue = None
+        self.rpc_queue = rpc_queue
+
+        try:
+            self.open()
+            print("[Cliente RPC] Conexión establecida correctamente.")
+        except Exception as e:
+            print(f"[Cliente RPC] Error al conectar: {e}")
+
+    def open(self):
+        """Open RabbitMQ connection."""
+        self.connection = amqpstorm.Connection(
+            self.host,
+            self.username,
+            self.password,
+            virtual_host=self.vhost
+        )
+
+        self.channel = self.connection.channel()
+
+        # Cola principal RPC
+        self.channel.queue.declare(
+            queue=self.rpc_queue,
+            durable=False
+        )
+
+        # Cola exclusiva de callback
+        result = self.channel.queue.declare(exclusive=True)
+        self.callback_queue = result['queue']
+
+        # Consumidor de respuestas
+        self.channel.basic.consume(
+            self._on_response,
+            no_ack=True,
+            queue=self.callback_queue
+        )
+
+        self._create_process_thread()
+
+    def _create_process_thread(self):
+        """Create thread for consuming RPC responses."""
+        thread = threading.Thread(target=self._process_data_events)
+        thread.daemon = True
+        thread.start()
+
+    def _process_data_events(self):
+        """Consume incoming responses."""
+        try:
+            self.channel.start_consuming(to_tuple=False)
+        except Exception as e:
+            print(f"[Cliente RPC] Error consumiendo mensajes: {e}")
+
+    def _on_response(self, message):
+        """Callback executed when a response arrives."""
+        self.queue[message.correlation_id] = message.body
+
+    def send_request(self, payload):
+        """Send RPC request."""
+        try:
+            message = Message.create(self.channel, payload)
+            message.reply_to = self.callback_queue
+            self.queue[message.correlation_id] = None
+            message.publish(routing_key=self.rpc_queue)
+            return message.correlation_id
+        except Exception as e:
+            print(f"[Cliente RPC] Error enviando solicitud: {e}")
+            return None
+
+    def has_response(self, correlation_id):
+        """Check if response exists."""
+        return self.queue.get(correlation_id) is not None
+
+    def get_response(self, correlation_id):
+        """Retrieve and clean response."""
+        response = self.queue.get(correlation_id)
+        if correlation_id in self.queue:
+            del self.queue[correlation_id]
+        return response
+
+
+# Configuración desde variables de entorno (CloudAMQP)
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
 RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
-RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS')
 RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
-# Cola para respuestas
-RESPONSE_QUEUE = 'rpc_responses'
+# Crear cliente RPC
+RPC_CLIENT = RpcClient(
+    RABBITMQ_HOST,
+    RABBITMQ_USER,
+    RABBITMQ_PASS,
+    RABBITMQ_VHOST,
+    RPC_QUEUE
+)
 
-# Variable global para almacenar respuestas
-responses = {}
-responses_lock = threading.Lock()
-
-# ==================== SERVIDOR RPC (WORKER) ====================
-class RpcWorker:
-    def __init__(self):
-        self.connection = None
-        self.channel = None
-        self.running = False
-        
-    def start(self):
-        self.running = True
-        thread = threading.Thread(target=self._run)
-        thread.daemon = True
-        thread.start()
-        print("[Worker] ✅ Iniciado")
-        
-    def _run(self):
-        try:
-            # Conectar a RabbitMQ
-            credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
-            params = pika.ConnectionParameters(
-                host=RABBITMQ_HOST,
-                virtual_host=RABBITMQ_VHOST,
-                credentials=credentials
-            )
-            
-            self.connection = pika.BlockingConnection(params)
-            self.channel = self.connection.channel()
-            
-            # Declarar colas
-            self.channel.queue_declare(queue=RPC_QUEUE, durable=False)
-            self.channel.queue_declare(queue=RESPONSE_QUEUE, durable=False)
-            
-            print(f"[Worker] ✅ Conectado a CloudAMQP")
-            print(f"[Worker] 📡 Escuchando en cola: {RPC_QUEUE}")
-            
-            # Consumir mensajes
-            self.channel.basic_consume(
-                queue=RPC_QUEUE,
-                on_message_callback=self._process_request,
-                auto_ack=False
-            )
-            
-            self.channel.start_consuming()
-            
-        except Exception as e:
-            print(f"[Worker] ❌ Error: {e}")
-    
-    def _process_request(self, ch, method, props, body):
-        mensaje = body.decode('utf-8')
-        print(f"[Worker] 📩 Recibido: {mensaje}")
-        
-        # Procesar respuesta
-        respuesta = f"✅ Respuesta: '{mensaje}' recibido correctamente"
-        
-        # Enviar respuesta a la cola de respuestas
-        ch.basic_publish(
-            exchange='',
-            routing_key=RESPONSE_QUEUE,
-            properties=pika.BasicProperties(correlation_id=props.correlation_id),
-            body=respuesta
-        )
-        
-        ch.basic_ack(delivery_tag=method.delivery_tag)
-        print(f"[Worker] 📤 Respuesta enviada")
-
-
-# ==================== CLIENTE RPC ====================
-class RpcClient:
-    def __init__(self):
-        self.connection = None
-        self.channel = None
-        
-        # Conectar a RabbitMQ
-        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
-        params = pika.ConnectionParameters(
-            host=RABBITMQ_HOST,
-            virtual_host=RABBITMQ_VHOST,
-            credentials=credentials
-        )
-        
-        self.connection = pika.BlockingConnection(params)
-        self.channel = self.connection.channel()
-        
-        # Declarar colas
-        self.channel.queue_declare(queue=RPC_QUEUE, durable=False)
-        self.channel.queue_declare(queue=RESPONSE_QUEUE, durable=False)
-        
-        # Consumir respuestas
-        self.channel.basic_consume(
-            queue=RESPONSE_QUEUE,
-            on_message_callback=self._on_response,
-            auto_ack=True
-        )
-        
-        # Iniciar hilo para consumir
-        thread = threading.Thread(target=self._consume)
-        thread.daemon = True
-        thread.start()
-        
-        print("[Cliente] ✅ Conectado")
-    
-    def _consume(self):
-        self.channel.start_consuming()
-    
-    def _on_response(self, ch, method, props, body):
-        with responses_lock:
-            responses[props.correlation_id] = body.decode('utf-8')
-            print(f"[Cliente] ✅ Respuesta guardada para {props.correlation_id}")
-    
-    def send_request(self, mensaje):
-        corr_id = str(uuid.uuid4())
-        
-        with responses_lock:
-            responses[corr_id] = None
-        
-        self.channel.basic_publish(
-            exchange='',
-            routing_key=RPC_QUEUE,
-            properties=pika.BasicProperties(correlation_id=corr_id),
-            body=mensaje
-        )
-        
-        print(f"[Cliente] 📤 Enviado: {mensaje} (ID: {corr_id})")
-        return corr_id
-    
-    def get_response(self, corr_id, timeout=10):
-        start = time.time()
-        while time.time() - start < timeout:
-            with responses_lock:
-                response = responses.get(corr_id)
-                if response is not None:
-                    del responses[corr_id]
-                    return response
-            time.sleep(0.1)
-        return None
-
-
-# ==================== INICIALIZACIÓN ====================
-print("=" * 50)
-print("🚀 Iniciando Sistema RPC Distribuido")
-print("=" * 50)
-
-# Iniciar Worker
-print("[App] 1. Iniciando Worker...")
-worker = RpcWorker()
-worker.start()
-
-# Esperar conexión
-time.sleep(3)
-
-# Iniciar Cliente
-print("[App] 2. Iniciando Cliente...")
-cliente = RpcClient()
-
-print("[App] ✅ Sistema listo!")
-
-
-# ==================== FLASK ROUTES ====================
 @app.route('/', methods=['GET', 'POST'])
 def index():
     respuesta = None
-    
+
     if request.method == 'POST':
-        mensaje = request.form.get('mensaje', '')
-        if mensaje:
-            print(f"[Flask] 📝 Procesando: {mensaje}")
-            
-            # Enviar solicitud
-            corr_id = cliente.send_request(mensaje)
-            
-            # Esperar respuesta
-            respuesta = cliente.get_response(corr_id, timeout=10)
-            
-            if respuesta is None:
-                respuesta = "⏰ Timeout: El servidor RPC no respondió"
+        try:
+            mensaje = request.form['mensaje']
+            corr_id = RPC_CLIENT.send_request(mensaje)
+
+            if corr_id is None:
+                respuesta = "❌ No se pudo enviar la solicitud RPC."
             else:
-                print(f"[Flask] ✅ Respuesta: {respuesta}")
-    
+                timeout = 10
+                elapsed = 0
+                while not RPC_CLIENT.has_response(corr_id):
+                    sleep(0.1)
+                    elapsed += 0.1
+                    if elapsed >= timeout:
+                        respuesta = "⏰ Timeout: el servidor RPC no respondió."
+                        break
+                else:
+                    respuesta = RPC_CLIENT.get_response(corr_id)
+        except Exception as e:
+            respuesta = f"❌ Error de conexión RPC: {str(e)}"
+
     return render_template('index.html', respuesta=respuesta)
-
-
-@app.route('/health')
-def health():
-    return {"status": "ok"}
-
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
