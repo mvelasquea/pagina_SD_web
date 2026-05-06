@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema RPC</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        body {
+
+            min-height: 100vh;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            padding: 20px;
+
+            overflow-x: hidden;
+            position: relative;
+
+            background:
+                radial-gradient(circle at top,
+                    #312e81 0%,
+                    #1e1b4b 40%,
+                    #0f172a 100%);
+        }
+
+        /* Fondos decorativos */
+
+        .blur-circle {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(90px);
+            opacity: 0.22;
+            z-index: 0;
+        }
+
+        .circle-1 {
+
+            width: 240px;
+            height: 240px;
+
+            background: #ec4899;
+
+            top: 0;
+            left: 5%;
+        }
+
+        .circle-2 {
+
+            width: 300px;
+            height: 300px;
+
+            background: #8b5cf6;
+
+            bottom: 0;
+            right: 5%;
+        }
+
+        /* Card principal */
+
+        .rpc-card {
+
+            position: relative;
+            z-index: 2;
+
+            width: 100%;
+            max-width: 560px;
+
+            background: rgba(255, 255, 255, 0.08);
+
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+
+            border-radius: 30px;
+
+            border: 1px solid rgba(255, 255, 255, 0.08);
+
+            overflow: hidden;
+
+            box-shadow:
+                0 10px 40px rgba(0, 0, 0, 0.35);
+
+            animation: fadeUp 0.8s ease;
+        }
+
+        @keyframes fadeUp {
+
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .rpc-header {
+
+            text-align: center;
+
+            padding: 42px 38px 25px 38px;
+        }
+
+        /* LOGO RPC */
+
+        .rpc-logo {
+
+            width: 92px;
+            height: 92px;
+
+            margin: 0 auto 22px auto;
+
+            border-radius: 28px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            background:
+                linear-gradient(135deg,
+                    rgba(236, 72, 153, 0.22),
+                    rgba(139, 92, 246, 0.22));
+
+            border: 1px solid rgba(255, 255, 255, 0.08);
+
+            backdrop-filter: blur(10px);
+
+            box-shadow:
+                0 10px 35px rgba(168, 85, 247, 0.28);
+        }
+
+        .rpc-logo-inner {
+
+            width: 62px;
+            height: 62px;
+
+            border-radius: 20px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            background:
+                linear-gradient(135deg,
+                    #ec4899,
+                    #8b5cf6);
+
+            box-shadow:
+                0 10px 25px rgba(236, 72, 153, 0.35);
+        }
+
+        /* TITULO */
+
+        .rpc-header h1 {
+
+            color: white;
+
+            font-size: 2.1rem;
+            font-weight: 700;
+
+            margin-bottom: 18px;
+        }
+
+        /* BADGE */
+
+        .badge-rpc {
+
+            display: inline-block;
+
+            padding: 10px 18px;
+
+            border-radius: 999px;
+
+            background: rgba(255, 255, 255, 0.08);
+
+            color: rgba(255, 255, 255, 0.78);
+
+            font-size: 0.82rem;
+
+            letter-spacing: 1px;
+        }
+
+        /* BODY */
+
+        .rpc-body {
+
+            padding: 10px 38px 40px 38px;
+        }
+
+        .form-label {
+
+            color: white;
+
+            margin-bottom: 12px;
+
+            font-weight: 500;
+        }
+
+        .form-control {
+
+            height: 58px;
+
+            border: none;
+            border-radius: 18px;
+
+            background: rgba(255, 255, 255, 0.08);
+
+            color: white;
+
+            padding-left: 18px;
+
+            transition: 0.3s ease;
+        }
+
+        .form-control::placeholder {
+            color: rgba(255, 255, 255, 0.45);
+        }
+
+        .form-control:focus {
+
+            background: rgba(255, 255, 255, 0.12);
+
+            color: white;
+
+            border: none;
+
+            box-shadow:
+                0 0 0 3px rgba(244, 114, 182, 0.25);
+        }
+
+        /* BOTON */
+
+        .btn-rpc {
+
+            height: 56px;
+
+            border: none;
+            border-radius: 18px;
+
+            background:
+                linear-gradient(135deg,
+                    #ec4899,
+                    #a855f7);
+
+            color: white;
+
+            font-size: 1rem;
+            font-weight: 600;
+
+            transition: 0.3s ease;
+        }
+
+        .btn-rpc:hover {
+
+            transform: translateY(-2px);
+
+            box-shadow:
+                0 10px 25px rgba(236, 72, 153, 0.35);
+        }
+
+        /* RESPUESTA */
+
+        .response-box {
+
+            margin-top: 28px;
+
+            padding: 22px;
+
+            border-radius: 18px;
+
+            background: rgba(168, 85, 247, 0.12);
+
+            border: 1px solid rgba(192, 132, 252, 0.25);
+
+            color: #f5d0fe;
+
+            animation: fadeUp 0.5s ease;
+        }
+
+        .response-box strong {
+            color: #f0abfc;
+        }
+
+        /* RESPONSIVE */
+
+        @media (max-width: 768px) {
+
+            .rpc-card {
+                border-radius: 24px;
+            }
+
+            .rpc-header {
+                padding: 35px 24px 20px 24px;
+            }
+
+            .rpc-body {
+                padding: 10px 24px 30px 24px;
+            }
+
+            .rpc-header h1 {
+                font-size: 1.7rem;
+            }
+
+            .rpc-logo {
+                width: 78px;
+                height: 78px;
+            }
+
+            .rpc-logo-inner {
+                width: 54px;
+                height: 54px;
+            }
+
+            .badge-rpc {
+                font-size: 0.72rem;
+                padding: 8px 14px;
+            }
+
+            .form-control {
+                height: 54px;
+                font-size: 0.95rem;
+            }
+
+            .btn-rpc {
+                height: 54px;
+                font-size: 0.95rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+
+            body {
+                padding: 14px;
+            }
+
+            .rpc-header h1 {
+                font-size: 1.45rem;
+            }
+
+            .rpc-logo {
+                width: 70px;
+                height: 70px;
+            }
+
+            .rpc-logo-inner {
+                width: 48px;
+                height: 48px;
+            }
+
+            .response-box {
+                padding: 18px;
+                font-size: 0.92rem;
+            }
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <!-- Fondos -->
+    <div class="blur-circle circle-1"></div>
+    <div class="blur-circle circle-2"></div>
+
+    <div class="container">
+
+        <div class="rpc-card mx-auto">
+
+            <div class="rpc-header">
+
+                <!-- LOGO RPC -->
+                <div class="rpc-logo">
+
+                    <div class="rpc-logo-inner">
+
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+
+                            <circle cx="5" cy="12" r="2.2" fill="white" />
+
+                            <circle cx="19" cy="6" r="2.2" fill="white" />
+
+                            <circle cx="19" cy="18" r="2.2" fill="white" />
+
+                            <path
+                                d="M7 12H16"
+                                stroke="white"
+                                stroke-width="1.8"
+                                stroke-linecap="round" />
+
+                            <path
+                                d="M7 12L17 6"
+                                stroke="white"
+                                stroke-width="1.8"
+                                stroke-linecap="round" />
+
+                            <path
+                                d="M7 12L17 18"
+                                stroke="white"
+                                stroke-width="1.8"
+                                stroke-linecap="round" />
+
+                        </svg>
+
+                    </div>
+
+                </div>
+
+                <h1>Sistema RPC Distribuido</h1>
+
+                <div class="badge-rpc">
+                    RPC • CALLBACK • RABBITMQ
+                </div>
+
+            </div>
+
+            <div class="rpc-body">
+
+                <form method="POST" action="/">
+
+                    <div class="mb-4">
+
+                        <label for="mensaje" class="form-label">
+                            Mensaje RPC
+                        </label>
+
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="mensaje"
+                            name="mensaje"
+                            placeholder="Escribe tu mensaje..."
+                            required>
+
+                    </div>
+
+                    <div class="d-grid">
+
+                        <button type="submit" class="btn btn-rpc">
+                            Enviar Solicitud
+                        </button>
+
+                    </div>
+
+                </form>
+
+                {% if respuesta %}
+                <div class="response-box">
+
+                    <strong>Respuesta del servidor:</strong>
+
+                    <br><br>
+
+                    {{ respuesta }}
+
+                </div>
+                {% endif %}
+
+            </div>
+
+        </div>
+
+    </div>
+
+</body>
+
+</html>
