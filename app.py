@@ -1,14 +1,81 @@
 import os
 import threading
-from time import sleep
+import time
 from flask import Flask, render_template, request
 import amqpstorm
 from amqpstorm import Message
 
 app = Flask(__name__)
 
+# Variable global para el servidor RPC (worker)
+rpc_server_running = False
+
+class RpcServer:
+    """Servidor RPC que corre en un hilo separado."""
+    
+    def __init__(self, host, username, password, vhost, queue_name):
+        self.host = host
+        self.username = username
+        self.password = password
+        self.vhost = vhost
+        self.queue_name = queue_name
+        self.connection = None
+        self.channel = None
+        self.running = False
+    
+    def start(self):
+        """Iniciar el servidor RPC en un hilo."""
+        self.running = True
+        thread = threading.Thread(target=self._run)
+        thread.daemon = True
+        thread.start()
+        print("[Servidor RPC] Hilo iniciado")
+    
+    def _run(self):
+        """Ejecutar el servidor RPC."""
+        try:
+            self.connection = amqpstorm.Connection(
+                self.host,
+                self.username,
+                self.password,
+                virtual_host=self.vhost
+            )
+            self.channel = self.connection.channel()
+            
+            # Cola RPC
+            self.channel.queue.declare(queue=self.queue_name, durable=False)
+            
+            print(f"[Servidor RPC] ✅ Conectado. Escuchando en cola: {self.queue_name}")
+            
+            # Consumir mensajes
+            self.channel.basic.consume(self._on_request, queue=self.queue_name)
+            self.channel.start_consuming()
+            
+        except Exception as e:
+            print(f"[Servidor RPC] ❌ Error: {e}")
+    
+    def _on_request(self, message):
+        """Procesar solicitud RPC."""
+        try:
+            print(f"[Servidor RPC] 📩 Recibido: {message.body}")
+            
+            # Procesar respuesta
+            response = f"✅ Respuesta del servidor: '{message.body}' recibido correctamente"
+            
+            # Enviar respuesta
+            response_message = Message.create(self.channel, response)
+            response_message.correlation_id = message.correlation_id
+            response_message.publish(routing_key=message.reply_to)
+            
+            print(f"[Servidor RPC] 📤 Respuesta enviada")
+            message.ack()
+            
+        except Exception as e:
+            print(f"[Servidor RPC] ❌ Error: {e}")
+
+
 class RpcClient(object):
-    """Asynchronous RPC Client."""
+    """Cliente RPC."""
 
     def __init__(self, host, username, password, vhost, rpc_queue):
         self.queue = {}
@@ -38,7 +105,7 @@ class RpcClient(object):
 
         self.channel = self.connection.channel()
 
-        # Cola principal RPC - durable=False para compatibilidad con CloudAMQP
+        # Cola principal RPC
         self.channel.queue.declare(
             queue=self.rpc_queue,
             durable=False
@@ -98,14 +165,23 @@ class RpcClient(object):
         return response
 
 
-# Configuración desde variables de entorno (Render + CloudAMQP)
+# Configuración desde variables de entorno
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
 RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
 RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN')
 RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
+# Iniciar el servidor RPC (worker) en un hilo
+print("[App] Iniciando Servidor RPC (Worker)...")
+rpc_server = RpcServer(RABBITMQ_HOST, RABBITMQ_USER, RABBITMQ_PASS, RABBITMQ_VHOST, RPC_QUEUE)
+rpc_server.start()
+
+# Esperar un momento para que el servidor se conecte
+time.sleep(2)
+
 # Crear cliente RPC
+print("[App] Iniciando Cliente RPC...")
 RPC_CLIENT = RpcClient(
     RABBITMQ_HOST,
     RABBITMQ_USER,
@@ -126,23 +202,27 @@ def index():
             corr_id = RPC_CLIENT.send_request(mensaje)
 
             if corr_id is None:
-                respuesta = "❌ No se pudo enviar la solicitud RPC. ¿El worker está activo?"
+                respuesta = "❌ No se pudo enviar la solicitud RPC."
             else:
                 timeout = 10
                 elapsed = 0
                 while not RPC_CLIENT.has_response(corr_id):
-                    sleep(0.1)
+                    time.sleep(0.1)
                     elapsed += 0.1
                     if elapsed >= timeout:
-                        respuesta = "⏰ Timeout: El servidor RPC no respondió (el worker no está activo)"
+                        respuesta = "⏰ Timeout: El servidor RPC no respondió"
                         break
                 else:
                     respuesta = RPC_CLIENT.get_response(corr_id)
-                    print(f"[Flask] Respuesta recibida: {respuesta}")
+                    print(f"[Flask] Respuesta: {respuesta}")
         except Exception as e:
-            respuesta = f"❌ Error de conexión RPC: {str(e)}"
+            respuesta = f"❌ Error: {str(e)}"
 
     return render_template('index.html', respuesta=respuesta)
+
+@app.route('/health')
+def health():
+    return {"status": "ok", "worker": rpc_server.running}
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
