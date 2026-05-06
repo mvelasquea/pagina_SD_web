@@ -20,7 +20,6 @@ class RpcClient(object):
         self.open()
 
     def open(self):
-        # Usar host, username, password en lugar de URL
         self.connection = amqpstorm.Connection(self.host, self.username, self.password)
         self.channel = self.connection.channel()
         self.channel.queue.declare(self.rpc_queue)
@@ -47,13 +46,12 @@ class RpcClient(object):
         message.publish(routing_key=self.rpc_queue)
         return message.correlation_id
 
-# Leer configuración desde variables de entorno
+# Configuración desde variables de entorno
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST')
 RABBITMQ_USER = os.environ.get('RABBITMQ_USER')
 RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS')
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
-# Crear el cliente RPC con host, user, pass
 RPC_CLIENT = RpcClient(RABBITMQ_HOST, RABBITMQ_USER, RABBITMQ_PASS, RPC_QUEUE)
 
 @app.route('/rpc_call/<payload>')
