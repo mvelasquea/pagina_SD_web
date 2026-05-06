@@ -17,7 +17,8 @@ class RpcClientPika(object):
         parameters = pika.ConnectionParameters(
             host=host,
             virtual_host=vhost,
-            credentials=credentials
+            credentials=credentials,
+            heartbeat=600
         )
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()

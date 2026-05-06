@@ -48,6 +48,7 @@ MENU_HTML = '''
             text-decoration: none;
             border-radius: 4px;
             margin-top: 10px;
+            margin-right: 10px;
         }
         .card a:hover {
             background-color: #cc5500;
