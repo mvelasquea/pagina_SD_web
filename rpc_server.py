@@ -45,8 +45,8 @@ def main():
         
         channel = connection.channel()
         
-        # Declarar cola RPC (durable)
-        channel.queue.declare(queue=queue, durable=True)
+        # Declarar cola RPC - durable=False para compatibilidad con CloudAMQP
+        channel.queue.declare(queue=queue, durable=False)
         
         print(f"[Servidor RPC] ✅ Conectado a CloudAMQP")
         print(f"[Servidor RPC] 🎧 Esperando solicitudes en cola: {queue}")

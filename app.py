@@ -38,10 +38,10 @@ class RpcClient(object):
 
         self.channel = self.connection.channel()
 
-        # Cola principal RPC
+        # Cola principal RPC - durable=False para compatibilidad con CloudAMQP
         self.channel.queue.declare(
             queue=self.rpc_queue,
-            durable=True
+            durable=False
         )
 
         # Cola exclusiva de callback
