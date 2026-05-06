@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: pagina-sd-web
+    runtime: python
+    repo: https://github.com/mvelasquea/pagina_SD_web
+    plan: free
+    envVars:
+      - key: CLOUDAMQP_URL
+        sync: false
+      - key: RPC_QUEUE
+        value: rpc_queue
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
