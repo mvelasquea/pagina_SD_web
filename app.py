@@ -8,17 +8,20 @@ from amqpstorm import Message
 app = Flask(__name__)
 
 class RpcClient(object):
-    def __init__(self, amqp_url, rpc_queue):
+    def __init__(self, host, username, password, rpc_queue):
         self.queue = {}
-        self.amqp_url = amqp_url
-        self.rpc_queue = rpc_queue
+        self.host = host
+        self.username = username
+        self.password = password
         self.channel = None
         self.connection = None
         self.callback_queue = None
+        self.rpc_queue = rpc_queue
         self.open()
 
     def open(self):
-        self.connection = amqpstorm.Connection(self.amqp_url)
+        # Usar host, username, password en lugar de URL
+        self.connection = amqpstorm.Connection(self.host, self.username, self.password)
         self.channel = self.connection.channel()
         self.channel.queue.declare(self.rpc_queue)
         result = self.channel.queue.declare(exclusive=True)
@@ -44,12 +47,14 @@ class RpcClient(object):
         message.publish(routing_key=self.rpc_queue)
         return message.correlation_id
 
-# Leer la URL de CloudAMQP desde variables de entorno
-AMQP_URL = os.environ.get('CLOUDAMQP_URL')
+# Leer configuración desde variables de entorno
+RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST')
+RABBITMQ_USER = os.environ.get('RABBITMQ_USER')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS')
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
-# Crear el cliente RPC
-RPC_CLIENT = RpcClient(AMQP_URL, RPC_QUEUE)
+# Crear el cliente RPC con host, user, pass
+RPC_CLIENT = RpcClient(RABBITMQ_HOST, RABBITMQ_USER, RABBITMQ_PASS, RPC_QUEUE)
 
 @app.route('/rpc_call/<payload>')
 def rpc_call(payload):
