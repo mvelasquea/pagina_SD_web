@@ -8,11 +8,12 @@ from amqpstorm import Message
 app = Flask(__name__)
 
 class RpcClient(object):
-    def __init__(self, host, username, password, rpc_queue):
+    def __init__(self, host, username, password, vhost, rpc_queue):
         self.queue = {}
         self.host = host
         self.username = username
         self.password = password
+        self.vhost = vhost  # Nuevo: virtual host
         self.channel = None
         self.connection = None
         self.callback_queue = None
@@ -20,7 +21,13 @@ class RpcClient(object):
         self.open()
 
     def open(self):
-        self.connection = amqpstorm.Connection(self.host, self.username, self.password)
+        # Agregar vhost como parámetro
+        self.connection = amqpstorm.Connection(
+            self.host, 
+            self.username, 
+            self.password,
+            virtual_host=self.vhost  # Especificar el vhost
+        )
         self.channel = self.connection.channel()
         self.channel.queue.declare(self.rpc_queue)
         result = self.channel.queue.declare(exclusive=True)
@@ -50,9 +57,17 @@ class RpcClient(object):
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST')
 RABBITMQ_USER = os.environ.get('RABBITMQ_USER')
 RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS')
+RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST')  # Nuevo: vhost
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
-RPC_CLIENT = RpcClient(RABBITMQ_HOST, RABBITMQ_USER, RABBITMQ_PASS, RPC_QUEUE)
+# Crear el cliente RPC con vhost
+RPC_CLIENT = RpcClient(
+    RABBITMQ_HOST, 
+    RABBITMQ_USER, 
+    RABBITMQ_PASS, 
+    RABBITMQ_VHOST,  # El vhost es "ssxppfqn"
+    RPC_QUEUE
+)
 
 @app.route('/rpc_call/<payload>')
 def rpc_call(payload):
