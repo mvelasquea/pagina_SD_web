@@ -10,12 +10,11 @@ app = Flask(__name__)
 class RpcClient(object):
     """Asynchronous RPC Client."""
 
-    def __init__(self, host, username, password, vhost, rpc_queue):
+    def __init__(self, host, username, password, rpc_queue):
         self.queue = {}
         self.host = host
         self.username = username
         self.password = password
-        self.vhost = vhost
         self.channel = None
         self.connection = None
         self.callback_queue = None
@@ -32,8 +31,7 @@ class RpcClient(object):
         self.connection = amqpstorm.Connection(
             self.host,
             self.username,
-            self.password,
-            virtual_host=self.vhost
+            self.password
         )
 
         self.channel = self.connection.channel()
@@ -41,7 +39,7 @@ class RpcClient(object):
         # Cola principal RPC
         self.channel.queue.declare(
             queue=self.rpc_queue,
-            durable=False
+            durable=True
         )
 
         # Cola exclusiva de callback
@@ -98,22 +96,6 @@ class RpcClient(object):
         return response
 
 
-# Configuración desde variables de entorno (CloudAMQP)
-RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
-RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
-RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS')
-RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')
-RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
-
-# Crear cliente RPC
-RPC_CLIENT = RpcClient(
-    RABBITMQ_HOST,
-    RABBITMQ_USER,
-    RABBITMQ_PASS,
-    RABBITMQ_VHOST,
-    RPC_QUEUE
-)
-
 @app.route('/', methods=['GET', 'POST'])
 def index():
     respuesta = None
@@ -124,7 +106,7 @@ def index():
             corr_id = RPC_CLIENT.send_request(mensaje)
 
             if corr_id is None:
-                respuesta = "❌ No se pudo enviar la solicitud RPC."
+                respuesta = "No se pudo enviar la solicitud RPC."
             else:
                 timeout = 10
                 elapsed = 0
@@ -132,15 +114,29 @@ def index():
                     sleep(0.1)
                     elapsed += 0.1
                     if elapsed >= timeout:
-                        respuesta = "⏰ Timeout: el servidor RPC no respondió."
+                        respuesta = "Timeout: el servidor RPC no respondió."
                         break
                 else:
                     respuesta = RPC_CLIENT.get_response(corr_id)
         except Exception as e:
-            respuesta = f"❌ Error de conexión RPC: {str(e)}"
+            respuesta = f"Error de conexión RPC: {str(e)}"
 
     return render_template('index.html', respuesta=respuesta)
 
+
 if __name__ == '__main__':
+    # Leer variables de entorno para CloudAMQP
+    rabbitmq_host = os.environ.get('RABBITMQ_HOST', '127.0.0.1')
+    rabbitmq_user = os.environ.get('RABBITMQ_USER', 'guest')
+    rabbitmq_pass = os.environ.get('RABBITMQ_PASS', 'guest')
+    rabbitmq_queue = os.environ.get('RPC_QUEUE', 'rpc_queue')
+
+    RPC_CLIENT = RpcClient(
+        rabbitmq_host,
+        rabbitmq_user,
+        rabbitmq_pass,
+        rabbitmq_queue
+    )
+
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)

@@ -1,5 +1,4 @@
 services:
-  # Servicio Web (Cliente Flask)
   - type: web
     name: pagina-sd-web
     runtime: python
@@ -13,12 +12,9 @@ services:
         value: ssxppfqn
       - key: RABBITMQ_PASS
         value: fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN
-      - key: RABBITMQ_VHOST
-        value: ssxppfqn
       - key: RPC_QUEUE
         value: rpc_queue
 
-  # Background Worker (Servidor RPC)
   - type: worker
     name: rpc-worker
     runtime: python
@@ -32,7 +28,5 @@ services:
         value: ssxppfqn
       - key: RABBITMQ_PASS
         value: fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN
-      - key: RABBITMQ_VHOST
-        value: ssxppfqn
       - key: RPC_QUEUE
         value: rpc_queue
