@@ -98,10 +98,10 @@ class RpcClient(object):
         return response
 
 
-# Configuración desde variables de entorno (CloudAMQP)
+# Configuración desde variables de entorno (Render + CloudAMQP)
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
 RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
-RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN')
 RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
@@ -121,10 +121,12 @@ def index():
     if request.method == 'POST':
         try:
             mensaje = request.form['mensaje']
+            print(f"[Flask] Enviando mensaje: {mensaje}")
+            
             corr_id = RPC_CLIENT.send_request(mensaje)
 
             if corr_id is None:
-                respuesta = "❌ No se pudo enviar la solicitud RPC."
+                respuesta = "❌ No se pudo enviar la solicitud RPC. ¿El worker está activo?"
             else:
                 timeout = 10
                 elapsed = 0
@@ -132,10 +134,11 @@ def index():
                     sleep(0.1)
                     elapsed += 0.1
                     if elapsed >= timeout:
-                        respuesta = "⏰ Timeout: el servidor RPC no respondió."
+                        respuesta = "⏰ Timeout: El servidor RPC no respondió (el worker no está activo)"
                         break
                 else:
                     respuesta = RPC_CLIENT.get_response(corr_id)
+                    print(f"[Flask] Respuesta recibida: {respuesta}")
         except Exception as e:
             respuesta = f"❌ Error de conexión RPC: {str(e)}"
 
