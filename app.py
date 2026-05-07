@@ -3,12 +3,13 @@ import ssl
 import time
 import uuid
 import threading
+import traceback
 from flask import Flask, render_template, request
 import pika
 
 app = Flask(__name__)
 
-# Configuración con valores por defecto (como originalmente)
+# Configuración (con valores por defecto para que siempre arranque)
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
 RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
 RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN')
@@ -17,18 +18,19 @@ RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 AMQPS_PORT = 5671
 
 print("=" * 60)
-print("🚀 SISTEMA RPC CON RABBITMQ + SSL")
+print("🚀 SISTEMA RPC CON RABBITMQ + SSL (Robusto)")
 print(f"   Host: {RABBITMQ_HOST}:{AMQPS_PORT}")
 print(f"   VHost: {RABBITMQ_VHOST}   Cola: {RPC_QUEUE}")
 print("=" * 60)
 
-worker_ready = False
-
-# Contexto SSL
+# Contexto SSL global
 ssl_context = ssl.create_default_context()
 ssl_options = pika.SSLOptions(ssl_context, server_hostname=RABBITMQ_HOST)
 
-# ==================== SERVIDOR RPC ====================
+# Estado del servidor RPC
+worker_ready = False
+
+# ==================== SERVIDOR RPC (sin cambios mayores) ====================
 def start_rpc_server():
     global worker_ready
 
@@ -36,7 +38,7 @@ def start_rpc_server():
         global worker_ready
         while True:
             try:
-                print("[RPC Server] 🔌 Conectando...")
+                print("[RPC Server] 🔌 Intentando conectar...")
                 credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
                 params = pika.ConnectionParameters(
                     host=RABBITMQ_HOST,
@@ -71,11 +73,12 @@ def start_rpc_server():
                 ch.start_consuming()
 
             except pika.exceptions.AMQPConnectionError as e:
-                print(f"[RPC Server] ❌ Error conexión: {e}")
+                print(f"[RPC Server] ❌ Error de conexión: {e}")
                 worker_ready = False
                 time.sleep(5)
             except Exception as e:
                 print(f"[RPC Server] ❌ Error inesperado: {e}")
+                traceback.print_exc()
                 worker_ready = False
                 time.sleep(5)
 
@@ -83,7 +86,7 @@ def start_rpc_server():
     thread.start()
     time.sleep(4)
 
-# ==================== CLIENTE RPC (SÍNCRONO, SIN HILOS) ====================
+# ==================== CLIENTE RPC CON RECONEXIÓN AUTOMÁTICA ====================
 class RpcClient:
     def __init__(self):
         self.connection = None
@@ -92,6 +95,7 @@ class RpcClient:
         self._connect()
 
     def _connect(self):
+        """Crea una nueva conexión y canal. Si falla, lanza excepción."""
         credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
         params = pika.ConnectionParameters(
             host=RABBITMQ_HOST,
@@ -99,59 +103,97 @@ class RpcClient:
             virtual_host=RABBITMQ_VHOST,
             credentials=credentials,
             ssl_options=ssl_options,
-            heartbeat=60
+            heartbeat=60,
+            blocked_connection_timeout=30
         )
         self.connection = pika.BlockingConnection(params)
         self.channel = self.connection.channel()
+        # Declarar la cola RPC (por si no existe)
         self.channel.queue_declare(queue=RPC_QUEUE, durable=False)
+        # Crear cola exclusiva para respuestas
         result = self.channel.queue_declare(queue='', exclusive=True)
         self.callback_queue = result.method.queue
         print("[RPC Client] ✅ Conectado (SSL)")
 
+    def _ensure_connected(self):
+        """Reconecta si la conexión está cerrada o es None."""
+        try:
+            if self.connection is None or self.connection.is_closed:
+                print("[RPC Client] 🔄 Reconectando...")
+                self._connect()
+        except Exception as e:
+            print(f"[RPC Client] ❌ Fallo al reconectar: {e}")
+            raise
+
     def call(self, message, timeout=15):
         """
-        Envía una solicitud RPC y espera la respuesta de forma síncrona.
+        Envía una solicitud RPC y espera respuesta.
+        En caso de error, reconecta automáticamente y puede reintentarse.
         """
-        corr_id = str(uuid.uuid4())
-        response = None
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                # Asegurar que haya conexión activa
+                self._ensure_connected()
 
-        def on_response(ch, method, props, body):
-            nonlocal response
-            if props.correlation_id == corr_id:
-                response = body.decode('utf-8')
-                ch.basic_cancel(consumer_tag)
+                corr_id = str(uuid.uuid4())
+                response = None
 
-        consumer_tag = self.channel.basic_consume(
-            queue=self.callback_queue,
-            on_message_callback=on_response,
-            auto_ack=True
-        )
+                def on_response(ch, method, props, body):
+                    nonlocal response
+                    if props.correlation_id == corr_id:
+                        response = body.decode('utf-8')
+                        # Cancelamos el consumidor para salir del bucle
+                        ch.basic_cancel(consumer_tag)
 
-        self.channel.basic_publish(
-            exchange='',
-            routing_key=RPC_QUEUE,
-            properties=pika.BasicProperties(
-                reply_to=self.callback_queue,
-                correlation_id=corr_id,
-            ),
-            body=message
-        )
-        print(f"[RPC Client] 📤 Enviado: '{message}' (ID: {corr_id})")
+                consumer_tag = self.channel.basic_consume(
+                    queue=self.callback_queue,
+                    on_message_callback=on_response,
+                    auto_ack=True
+                )
 
-        deadline = time.time() + timeout
-        while response is None and time.time() < deadline:
-            self.connection.process_data_events(time_limit=1)
+                self.channel.basic_publish(
+                    exchange='',
+                    routing_key=RPC_QUEUE,
+                    properties=pika.BasicProperties(
+                        reply_to=self.callback_queue,
+                        correlation_id=corr_id,
+                    ),
+                    body=message
+                )
+                print(f"[RPC Client] 📤 Enviado: '{message}' (ID: {corr_id})")
 
-        try:
-            self.channel.basic_cancel(consumer_tag)
-        except Exception:
-            pass
+                deadline = time.time() + timeout
+                while response is None and time.time() < deadline:
+                    self.connection.process_data_events(time_limit=1)
 
-        if response is None:
-            print(f"[RPC Client] ⏰ Timeout para {corr_id}")
-        else:
-            print(f"[RPC Client] ✅ Respuesta: {response}")
-        return response
+                # Cancelar el consumidor por si no se canceló en on_response
+                try:
+                    self.channel.basic_cancel(consumer_tag)
+                except Exception:
+                    pass
+
+                if response is None:
+                    print(f"[RPC Client] ⏰ Timeout para {corr_id}")
+                    return "⏰ Timeout: El servidor RPC no respondió"
+                else:
+                    print(f"[RPC Client] ✅ Respuesta: {response}")
+                    return response
+
+            except (pika.exceptions.AMQPConnectionError,
+                    pika.exceptions.StreamLostError,
+                    pika.exceptions.ChannelClosed,
+                    pika.exceptions.ConnectionClosed) as e:
+                print(f"[RPC Client] ⚠️ Error de conexión (intento {attempt+1}): {e}")
+                # Forzar cierre y reconexión en el siguiente intento
+                self.connection = None
+                time.sleep(1)
+                if attempt == max_retries - 1:
+                    return "❌ Error de comunicación con el bus de mensajes"
+            except Exception as e:
+                print(f"[RPC Client] ❌ Error inesperado: {e}")
+                traceback.print_exc()
+                return "❌ Error interno en el cliente RPC"
 
 # ==================== INICIALIZACIÓN ====================
 print("\n[App] 1. Iniciando servidor RPC...")
@@ -166,6 +208,7 @@ except Exception as e:
 
 print("[App] ✅ Sistema listo\n")
 
+# ==================== RUTAS ====================
 @app.route('/', methods=['GET', 'POST'])
 def index():
     respuesta = None
@@ -176,9 +219,13 @@ def index():
             if not worker_ready or rpc_client is None:
                 respuesta = "❌ El sistema RPC no está disponible. Revisa los logs."
             else:
-                respuesta = rpc_client.call(mensaje)
-                if respuesta is None:
-                    respuesta = "⏰ Timeout: El servidor RPC no respondió"
+                try:
+                    respuesta = rpc_client.call(mensaje)
+                except Exception as e:
+                    print(f"[Flask] ❌ Excepción al llamar al cliente RPC: {e}")
+                    traceback.print_exc()
+                    respuesta = "❌ Error interno al procesar la solicitud RPC"
+
     return render_template('index.html', respuesta=respuesta)
 
 @app.route('/health')
