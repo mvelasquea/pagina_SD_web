@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn app:app --workers=1
     envVars:
       - key: RABBITMQ_HOST
         value: rat.rmq2.cloudamqp.com
@@ -16,3 +16,7 @@ services:
         value: ssxppfqn
       - key: RPC_QUEUE
         value: rpc_queue
+      - key: PORT
+        value: "5000"
+      - key: PYTHONUNBUFFERED
+        value: "1"
