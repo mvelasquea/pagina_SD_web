@@ -12,6 +12,8 @@ services:
         value: ssxppfqn
       - key: RABBITMQ_PASS
         value: fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN
+      - key: RABBITMQ_VHOST
+        value: ssxppfqn
       - key: RPC_QUEUE
         value: rpc_queue
 
@@ -28,5 +30,7 @@ services:
         value: ssxppfqn
       - key: RABBITMQ_PASS
         value: fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN
+      - key: RABBITMQ_VHOST
+        value: ssxppfqn
       - key: RPC_QUEUE
         value: rpc_queue

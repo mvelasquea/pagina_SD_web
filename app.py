@@ -10,11 +10,12 @@ app = Flask(__name__)
 class RpcClient(object):
     """Asynchronous RPC Client."""
 
-    def __init__(self, host, username, password, rpc_queue):
+    def __init__(self, host, username, password, vhost, rpc_queue):
         self.queue = {}
         self.host = host
         self.username = username
         self.password = password
+        self.vhost = vhost
         self.channel = None
         self.connection = None
         self.callback_queue = None
@@ -28,10 +29,12 @@ class RpcClient(object):
 
     def open(self):
         """Open RabbitMQ connection."""
+        # IMPORTANTE: agregar virtual_host
         self.connection = amqpstorm.Connection(
             self.host,
             self.username,
-            self.password
+            self.password,
+            virtual_host=self.vhost  # ← CLAVE: agregar el vhost
         )
 
         self.channel = self.connection.channel()
@@ -96,17 +99,19 @@ class RpcClient(object):
         return response
 
 
-# Configuración desde variables de entorno (se ejecuta al inicio)
-RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', '127.0.0.1')
-RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'guest')
-RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'guest')
+# Configuración desde variables de entorno
+RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
+RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN')
+RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')  # ← CLAVE
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
-# Crear el cliente RPC globalmente (NO dentro del if __name__)
+# Crear el cliente RPC con el vhost
 RPC_CLIENT = RpcClient(
     RABBITMQ_HOST,
     RABBITMQ_USER,
     RABBITMQ_PASS,
+    RABBITMQ_VHOST,  # ← CLAVE: pasar el vhost
     RPC_QUEUE
 )
 
@@ -118,6 +123,7 @@ def index():
     if request.method == 'POST':
         try:
             mensaje = request.form['mensaje']
+            print(f"[Flask] Enviando: {mensaje}")
             corr_id = RPC_CLIENT.send_request(mensaje)
 
             if corr_id is None:
@@ -133,6 +139,7 @@ def index():
                         break
                 else:
                     respuesta = RPC_CLIENT.get_response(corr_id)
+                    print(f"[Flask] Respuesta: {respuesta}")
         except Exception as e:
             respuesta = f"Error de conexión RPC: {str(e)}"
 

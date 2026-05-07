@@ -8,29 +8,21 @@ def on_request(message):
     try:
         print(f"[Servidor RPC] Recibido: {message.body}")
 
-        # Procesamiento
         response = f"Hola, recibí tu mensaje: {message.body}"
 
-        # Crear respuesta
         response_message = Message.create(
             message.channel,
             response
         )
 
-        # Mantener relación request-response
         response_message.correlation_id = message.correlation_id
-
-        # Cola callback del cliente
         response_message.reply_to = message.reply_to
 
-        # Enviar respuesta
         response_message.publish(
             routing_key=message.reply_to
         )
 
         print(f"[Servidor RPC] Respuesta enviada.")
-
-        # Confirmar mensaje procesado
         message.ack()
 
     except Exception as e:
@@ -38,30 +30,32 @@ def on_request(message):
 
 
 def main():
-    # Leer variables de entorno para CloudAMQP
-    rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'localhost')
-    rabbitmq_user = os.environ.get('RABBITMQ_USER', 'guest')
-    rabbitmq_pass = os.environ.get('RABBITMQ_PASS', 'guest')
+    rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
+    rabbitmq_user = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
+    rabbitmq_pass = os.environ.get('RABBITMQ_PASS', 'fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN')
+    rabbitmq_vhost = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')  # ← CLAVE
     rabbitmq_queue = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
     try:
+        # IMPORTANTE: agregar virtual_host
         connection = amqpstorm.Connection(
             rabbitmq_host,
             rabbitmq_user,
-            rabbitmq_pass
+            rabbitmq_pass,
+            virtual_host=rabbitmq_vhost  # ← CLAVE
         )
 
         channel = connection.channel()
 
-        # Cola RPC principal
         channel.queue.declare(
             queue=rabbitmq_queue,
             durable=True
         )
 
         print(f"[Servidor RPC] Esperando solicitudes en cola: {rabbitmq_queue}")
+        print(f"[Servidor RPC] Conectado a vhost: {rabbitmq_vhost}")
 
-        channel.basic.consume(
+        channel.basic_consume(
             on_request,
             queue=rabbitmq_queue
         )
