@@ -33,27 +33,26 @@ def main():
     rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
     rabbitmq_user = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
     rabbitmq_pass = os.environ.get('RABBITMQ_PASS', 'fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN')
-    rabbitmq_vhost = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')  # ← CLAVE
+    rabbitmq_vhost = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')
     rabbitmq_queue = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
     try:
-        # IMPORTANTE: agregar virtual_host
         connection = amqpstorm.Connection(
             rabbitmq_host,
             rabbitmq_user,
             rabbitmq_pass,
-            virtual_host=rabbitmq_vhost  # ← CLAVE
+            virtual_host=rabbitmq_vhost
         )
 
         channel = connection.channel()
 
+        # durable=False para CloudAMQP
         channel.queue.declare(
             queue=rabbitmq_queue,
-            durable=True
+            durable=False  # ← CAMBIADO de True a False
         )
 
         print(f"[Servidor RPC] Esperando solicitudes en cola: {rabbitmq_queue}")
-        print(f"[Servidor RPC] Conectado a vhost: {rabbitmq_vhost}")
 
         channel.basic_consume(
             on_request,

@@ -29,20 +29,19 @@ class RpcClient(object):
 
     def open(self):
         """Open RabbitMQ connection."""
-        # IMPORTANTE: agregar virtual_host
         self.connection = amqpstorm.Connection(
             self.host,
             self.username,
             self.password,
-            virtual_host=self.vhost  # ← CLAVE: agregar el vhost
+            virtual_host=self.vhost
         )
 
         self.channel = self.connection.channel()
 
-        # Cola principal RPC
+        # Cola principal RPC - durable=False para CloudAMQP
         self.channel.queue.declare(
             queue=self.rpc_queue,
-            durable=True
+            durable=False  # ← CAMBIADO de True a False
         )
 
         # Cola exclusiva de callback
@@ -103,15 +102,15 @@ class RpcClient(object):
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
 RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
 RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN')
-RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')  # ← CLAVE
+RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
 
-# Crear el cliente RPC con el vhost
+# Crear el cliente RPC
 RPC_CLIENT = RpcClient(
     RABBITMQ_HOST,
     RABBITMQ_USER,
     RABBITMQ_PASS,
-    RABBITMQ_VHOST,  # ← CLAVE: pasar el vhost
+    RABBITMQ_VHOST,
     RPC_QUEUE
 )
 
