@@ -8,13 +8,13 @@ import pika
 
 app = Flask(__name__)
 
-# Configuración obligatoria por variables de entorno
-RABBITMQ_HOST = os.environ['RABBITMQ_HOST']
-RABBITMQ_USER = os.environ['RABBITMQ_USER']
-RABBITMQ_PASS = os.environ['RABBITMQ_PASS']
-RABBITMQ_VHOST = os.environ['RABBITMQ_VHOST']
+# Configuración con valores por defecto (como originalmente)
+RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rat.rmq2.cloudamqp.com')
+RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'ssxppfqn')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'fUxvCQey_0uAHrCbvTVTCvFicYLbm3eN')
+RABBITMQ_VHOST = os.environ.get('RABBITMQ_VHOST', 'ssxppfqn')
 RPC_QUEUE = os.environ.get('RPC_QUEUE', 'rpc_queue')
-AMQPS_PORT = 5671  # Puerto seguro de CloudAMQP
+AMQPS_PORT = 5671
 
 print("=" * 60)
 print("🚀 SISTEMA RPC CON RABBITMQ + SSL")
@@ -22,14 +22,13 @@ print(f"   Host: {RABBITMQ_HOST}:{AMQPS_PORT}")
 print(f"   VHost: {RABBITMQ_VHOST}   Cola: {RPC_QUEUE}")
 print("=" * 60)
 
-# Estado global
 worker_ready = False
 
-# Contexto SSL compartido
+# Contexto SSL
 ssl_context = ssl.create_default_context()
 ssl_options = pika.SSLOptions(ssl_context, server_hostname=RABBITMQ_HOST)
 
-# ==================== SERVIDOR RPC (sin cambios importantes) ====================
+# ==================== SERVIDOR RPC ====================
 def start_rpc_server():
     global worker_ready
 
@@ -84,10 +83,8 @@ def start_rpc_server():
     thread.start()
     time.sleep(4)
 
-# ==================== CLIENTE RPC (COMPLETAMENTE REESCRITO) ====================
+# ==================== CLIENTE RPC (SÍNCRONO, SIN HILOS) ====================
 class RpcClient:
-    """Cliente RPC sin hilos adicionales, seguro para entornos multiproceso"""
-
     def __init__(self):
         self.connection = None
         self.channel = None
@@ -106,17 +103,14 @@ class RpcClient:
         )
         self.connection = pika.BlockingConnection(params)
         self.channel = self.connection.channel()
-        # Aseguramos que la cola RPC exista
         self.channel.queue_declare(queue=RPC_QUEUE, durable=False)
-        # Creamos una cola exclusiva para recibir respuestas
         result = self.channel.queue_declare(queue='', exclusive=True)
         self.callback_queue = result.method.queue
         print("[RPC Client] ✅ Conectado (SSL)")
 
     def call(self, message, timeout=15):
         """
-        Envía una solicitud RPC y espera la respuesta de forma síncrona
-        usando process_data_events. Totalmente seguro sin hilos.
+        Envía una solicitud RPC y espera la respuesta de forma síncrona.
         """
         corr_id = str(uuid.uuid4())
         response = None
@@ -125,17 +119,14 @@ class RpcClient:
             nonlocal response
             if props.correlation_id == corr_id:
                 response = body.decode('utf-8')
-                # Cancelamos el consumidor inmediatamente para salir
                 ch.basic_cancel(consumer_tag)
 
-        # Configuramos un consumidor temporal en la cola de callback
         consumer_tag = self.channel.basic_consume(
             queue=self.callback_queue,
             on_message_callback=on_response,
             auto_ack=True
         )
 
-        # Publicamos la solicitud
         self.channel.basic_publish(
             exchange='',
             routing_key=RPC_QUEUE,
@@ -147,12 +138,10 @@ class RpcClient:
         )
         print(f"[RPC Client] 📤 Enviado: '{message}' (ID: {corr_id})")
 
-        # Bloqueamos hasta recibir respuesta o timeout
         deadline = time.time() + timeout
         while response is None and time.time() < deadline:
             self.connection.process_data_events(time_limit=1)
 
-        # Limpieza opcional (el consumidor puede haber sido cancelado ya)
         try:
             self.channel.basic_cancel(consumer_tag)
         except Exception:
@@ -185,7 +174,7 @@ def index():
         if mensaje:
             print(f"[Flask] 📝 Nuevo mensaje: {mensaje}")
             if not worker_ready or rpc_client is None:
-                respuesta = "❌ El sistema RPC no está disponible."
+                respuesta = "❌ El sistema RPC no está disponible. Revisa los logs."
             else:
                 respuesta = rpc_client.call(mensaje)
                 if respuesta is None:
